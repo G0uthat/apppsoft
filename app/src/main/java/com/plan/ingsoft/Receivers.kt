@@ -10,16 +10,17 @@ import java.time.LocalDate
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val date = intent.getStringExtra("date")?.let { LocalDate.parse(it) }
-        val idx = intent.getIntExtra("idx", -2)
-        if (date != null && idx >= -1) {
-            Notifier.mostrar(context, date, idx)
+        val id = intent.getIntExtra("idx", -2)
+        val kind = intent.getIntExtra("kind", 0)
+        if (date != null && id >= -1) {
+            Notifier.mostrar(context, date, id, kind)
         }
         Notifier.scheduleNext(context)
         PlanWidget.updateAll(context)
     }
 }
 
-/** Botones de las notificaciones: "Bloque hecho" y "Hito listo". */
+/** Botones de las notificaciones: "Hecho" y "Hito listo". */
 class ActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val st = Store(context)
@@ -39,11 +40,12 @@ class ActionReceiver : BroadcastReceiver() {
     }
 }
 
-/** Reinicio del teléfono, cambio de hora/zona o actualización de la app: reprograma. */
+/** Reinicio, cambio de hora/zona o actualización: reprograma avisos y vigilancia. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Notifier.createChannels(context)
         Notifier.scheduleNext(context)
+        MonitorService.sync(context)
         PlanWidget.updateAll(context)
     }
 }

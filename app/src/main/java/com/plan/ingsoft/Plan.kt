@@ -38,12 +38,15 @@ fun pilarEmoji(p: String): String = when (p) {
 }
 
 data class Block(
-    val idx: Int,
+    val id: Int,
     val dia: String,
     val ini: LocalTime,
     val fin: LocalTime,
     val pilar: String,
-    val act: String
+    val act: String,
+    val lugar: String = "",
+    val notif: Boolean = true,
+    val pista: String = ""
 ) {
     val iniMin: Int get() = ini.hour * 60 + ini.minute
     val finMin: Int
@@ -52,6 +55,70 @@ data class Block(
             return if (m <= iniMin) m + 1440 else m
         }
     val horas: Double get() = (finMin - iniMin) / 60.0
+
+    /** Actividad con texto de instrucción (no escrita por ti): se muestra el hito concreto. */
+    val esGenerica: Boolean
+        get() = act.contains("HOY TOCA") || act.contains("Línea de Tiempo") ||
+            act.startsWith("Hito profundo") || act.startsWith("Práctica del hito") ||
+            act.startsWith("Resolver problemas") || act.startsWith("Proyecto práctico") ||
+            act.startsWith("Segundo curso")
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("id", id).put("dia", dia).put("ini", ini.toString()).put("fin", fin.toString())
+        .put("pilar", pilar).put("act", act).put("lugar", lugar).put("notif", notif)
+        .put("pista", pista)
+}
+
+/** Acepta "7:05" o "19:00". Devuelve null si no es una hora válida. */
+fun parseHm(s: String): LocalTime? {
+    val m = Regex("^\\s*(\\d{1,2}):(\\d{2})\\s*$").matchEntire(s) ?: return null
+    val h = m.groupValues[1].toInt()
+    val mi = m.groupValues[2].toInt()
+    if (h > 23 || mi > 59) return null
+    return LocalTime.of(h, mi)
+}
+
+fun blocksToJson(list: List<Block>): String {
+    val arr = JSONArray()
+    for (b in list) arr.put(b.toJson())
+    return arr.toString()
+}
+
+fun blocksFromJson(txt: String): List<Block> {
+    val arr = JSONArray(txt)
+    val out = ArrayList<Block>()
+    for (i in 0 until arr.length()) {
+        val o = arr.getJSONObject(i)
+        out.add(
+            Block(
+                o.getInt("id"), o.getString("dia"),
+                LocalTime.parse(o.getString("ini")), LocalTime.parse(o.getString("fin")),
+                o.getString("pilar"), o.getString("act"), o.optString("lugar", ""),
+                o.optBoolean("notif", true), o.optString("pista", "")
+            )
+        )
+    }
+    return out
+}
+
+/** Un bloque "marcable" (asistencia) es todo lo que no es tiempo personal libre. */
+fun Block.checkable(): Boolean = pilar != "Personal"
+
+val PILARES = listOf("Estudio", "Entrenamiento", "Relación", "Personal")
+
+val TESTS = listOf(
+    "Peso corporal (kg)",
+    "Flexiones inclinadas máx. (reps)",
+    "Sentadillas a silla en 1 min",
+    "Plancha sobre rodillas (s)",
+    "Puente de glúteos máx. (reps)"
+)
+val TEST_COLS = listOf("Inicio", "Sem 4", "Sem 8", "Sem 12")
+
+fun fmtDur(min: Int): String {
+    val h = min / 60
+    val m = min % 60
+    return if (h > 0 && m > 0) "$h h $m min" else if (h > 0) "$h h" else "$m min"
 }
 
 data class Curso(
@@ -110,18 +177,28 @@ class Plan(
 ) {
     val hitosPorCurso: Map<String, List<Hito>> = hitos.groupBy { it.curso }
 
-    private fun esPistaB(b: Block) = b.act.startsWith("Segundo curso")
-
     val horasPlanA: Double =
-        horario.filter { it.pilar == "Estudio" && !esPistaB(it) }.sumOf { it.horas }
+        horario.filter { it.pilar == "Estudio" && it.pista != "B" }.sumOf { it.horas }
     val horasPlanB: Double =
-        horario.filter { it.pilar == "Estudio" && esPistaB(it) }.sumOf { it.horas }
+        horario.filter { it.pilar == "Estudio" && it.pista == "B" }.sumOf { it.horas }
 
     /** Horas efectivas de estudio por semana en una pista (plan x eficiencia). */
     fun efectivasSemana(pista: String): Double =
         (if (pista == "A") horasPlanA else horasPlanB) * eficiencia
 
-    fun bloquesDe(d: LocalDate): List<Block> = horario.filter { it.dia == diaNombre(d) }
+    fun bloquesDe(d: LocalDate): List<Block> =
+        horario.filter { it.dia == diaNombre(d) }.sortedBy { it.iniMin }
+
+    fun bloquePorId(id: Int): Block? = horario.firstOrNull { it.id == id }
+
+    fun bloqueActual(now: LocalDateTime): Block? {
+        val min = now.hour * 60 + now.minute
+        return bloquesDe(now.toLocalDate()).firstOrNull { min >= it.iniMin && min < it.finMin }
+    }
+
+    /** Hito concreto que corresponde a un bloque de estudio (según su pista). */
+    fun hitoDeBloque(s: Store, b: Block): Hito? =
+        if (b.pilar == "Estudio") siguienteHito(s, if (b.pista == "B") "B" else "A") else null
 
     fun horasTotalPista(pista: String): Double =
         cursos.filter { it.pista == pista }
@@ -192,12 +269,14 @@ class Plan(
         val min = now.hour * 60 + now.minute
         val bl = bloquesDe(hoy).sortedBy { it.iniMin }
         val actual = bl.firstOrNull { min >= it.iniMin && min < it.finMin }
-        if (actual != null) return "Ahora ${actual.ini}–${actual.fin} · ${actual.act}"
+        if (actual != null) return "Ahora ${actual.ini}–${actual.fin} · ${actual.act}" + lug(actual)
         val sig = bl.firstOrNull { it.iniMin > min }
-        if (sig != null) return "Sigue ${sig.ini} · ${sig.act}"
+        if (sig != null) return "Sigue ${sig.ini} · ${sig.act}" + lug(sig)
         val man = bloquesDe(hoy.plusDays(1)).minByOrNull { it.iniMin }
         return if (man != null) "Mañana ${man.ini} · ${man.act}" else "Sin más bloques hoy"
     }
+
+    private fun lug(b: Block) = if (b.lugar.isNotBlank()) " 📍${b.lugar}" else ""
 
     // ---- Entrenamiento ----
     fun semanaActual(hoy: LocalDate): Int =
@@ -224,6 +303,36 @@ class Plan(
         else -> null
     }
 
+    // ---- Cumplimiento ----
+    /** Un día cuenta como cumplido si marcaste al menos el 80% de sus bloques marcables. */
+    fun cumplido(s: Store, d: LocalDate): Boolean {
+        val c = bloquesDe(d).filter { it.checkable() }
+        if (c.isEmpty()) return false
+        return c.count { s.isBlockDone(d, it.id) } >= ceil(c.size * 0.8)
+    }
+
+    fun racha(s: Store, hoy: LocalDate): Int {
+        var d = hoy
+        if (!cumplido(s, d)) d = d.minusDays(1)
+        var n = 0
+        var guard = 0
+        while (!d.isBefore(inicio) && guard < 400) {
+            guard++
+            if (cumplido(s, d)) {
+                n++
+                d = d.minusDays(1)
+            } else {
+                break
+            }
+        }
+        return n
+    }
+
+    fun hitosSemana(s: Store, hoy: LocalDate): Int {
+        val desde = hoy.toEpochDay() - 6
+        return hitos.count { s.isHitoDone(it.id) && s.hitoFecha(it.id) >= desde }
+    }
+
     fun ejerciciosDe(sesion: String): List<Ejercicio> = entreno.filter { it.sesion == sesion }
 
     fun resumenEjercicios(sesion: String, fase: Int): String =
@@ -244,18 +353,35 @@ object PlanLoader {
         }
     }
 
+    /** Vuelve a leer el plan (tras editar horario, fecha de inicio, etc.). */
+    fun reload(ctx: Context): Plan {
+        synchronized(this) {
+            val p = load(ctx.applicationContext)
+            cached = p
+            return p
+        }
+    }
+
     private fun JSONArray.objs(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
 
     private fun load(ctx: Context): Plan {
+        val st = Store(ctx)
         val txt = ctx.assets.open("plan.json").bufferedReader().use { it.readText() }
         val o = JSONObject(txt)
-        val horario = o.getJSONArray("horario").objs().mapIndexed { i, b ->
+        val base = o.getJSONArray("horario").objs().mapIndexed { i, b ->
+            val pilar = b.getString("pilar")
+            val act = b.getString("act")
             Block(
                 i, b.getString("dia"),
                 LocalTime.parse(b.getString("ini")), LocalTime.parse(b.getString("fin")),
-                b.getString("pilar"), b.getString("act")
+                pilar, act, "", true,
+                if (pilar == "Estudio") (if (act.startsWith("Segundo curso")) "B" else "A") else ""
             )
         }
+        val custom = st.horarioJson()?.let {
+            try { blocksFromJson(it) } catch (e: Exception) { null }
+        }
+        val horario = custom ?: base
         val cursos = o.getJSONArray("orden").objs().map {
             Curso(
                 it.getString("nombre"), it.getString("pista"), it.optString("ciclo"),
@@ -275,9 +401,10 @@ object PlanLoader {
                 it.optString("desc"), it.optString("facil"), it.optString("dificil")
             )
         }
-        return Plan(
-            LocalDate.parse(o.getString("inicio")), o.getDouble("eficiencia"),
-            horario, cursos, hitos, entreno
-        )
+        val inicio = st.inicioOverride()?.let {
+            try { LocalDate.parse(it) } catch (e: Exception) { null }
+        } ?: LocalDate.parse(o.getString("inicio"))
+        val efic = st.eficienciaOverride() ?: o.getDouble("eficiencia")
+        return Plan(inicio, efic, horario, cursos, hitos, entreno)
     }
 }

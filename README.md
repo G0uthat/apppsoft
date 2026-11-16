@@ -1,31 +1,25 @@
-# Plan Ing. Software (app Android)
+# Plan Ing. Software · v2 (Android)
 
-App con widget de pantalla principal y notificaciones diarias, hecha a partir de tu Excel
-`Plan_Ingenieria_Software_v2.xlsx`.
+Compilación: igual que antes. Sube el CONTENIDO de esta carpeta a GitHub (incluida `.github/workflows/build-apk.yml`),
+ve a Actions → Build APK → Run workflow y descarga el artifact `PlanIngSoftware-apk`.
 
-## Cómo obtener el APK (sin instalar nada en tu PC)
-1. Crea una cuenta gratis en https://github.com y un repositorio nuevo (privado está bien).
-2. Sube TODO el contenido de esta carpeta al repositorio (botón "Add file → Upload files").
-   Importante: debe quedar la carpeta oculta `.github/workflows/build-apk.yml`.
-   Si no se sube, crea ese archivo a mano: "Add file → Create new file" con el nombre
-   `.github/workflows/build-apk.yml` y pega su contenido.
-3. Ve a la pestaña **Actions** → "Build APK" → **Run workflow**. Tarda 3–6 minutos.
-4. Entra a la ejecución terminada y descarga **PlanIngSoftware-apk** (un zip con `app-debug.apk`).
-5. Pasa el APK al teléfono, ábrelo y permite "instalar apps desconocidas".
+## Pestañas
+- **Hoy** (principal): franja de la semana, agenda del día tipo calendario y check rápido (toca el círculo).
+  Toca un bloque para editarlo (protegido con candado).
+- **Estudio**: HOY TOCA de las pistas A y B y los cursos con sus hitos.
+- **Workout**: sesión del día según tu semana y fase, y registro de sesiones.
+- **Progreso**: sección Estudio y sección Ejercicio.
+- **Foco**: tiempo en pantalla por app, límites diarios por app y bloqueo al llegar al límite.
+- **⚙ (en Hoy)**: notificaciones, fecha de inicio del plan, eficiencia, contraseña y editor del horario.
 
-## Primera vez en el teléfono
-- Acepta el permiso de notificaciones.
-- En la pestaña **Ajustes**: "Permitir alarmas exactas" y "Quitar ahorro de batería".
-- Pulsa "Enviar notificación de prueba".
-- Widget: mantén pulsada la pantalla principal → Widgets → "Plan Ing. Software".
+## Candado
+Cambiar horario, fecha de inicio o límites pide contraseña o resolver retos (cálculo mental,
+apaga las luces, torres de Hanói). Al resolverlo, se puede editar durante unos minutos.
 
-## Qué hace
-- **Hoy**: hito de hoy (pistas A y B), progreso total y horario del día con checks.
-- **Cursos**: los 27 cursos con fechas del plan, % y estado; toca uno para ver y marcar sus 207 hitos.
-- **Entreno**: sesión de hoy según la semana/fase, y registro de 12 semanas.
-- **Notificaciones**: al empezar cada bloque (con el hito que toca), resumen a las 08:00 y
-  recordatorio de cierre del día. Botones "Bloque hecho" y "Hito listo" dentro de la notificación.
-- **Widget**: bloque actual/siguiente, hito A y B, barra de progreso y botón "✔ Hito A".
+## Permisos que pide
+- Notificaciones, alarmas exactas y quitar ahorro de batería (para que lleguen siempre).
+- Foco: "Acceso al uso" (para medir) y "Mostrar sobre otras apps" (solo para bloquear).
 
-El plan empieza el lunes 16/11/2026 (las notificaciones arrancan ese día).
-Los datos viven en `app/src/main/assets/plan.json`.
+## Nota sobre Rust
+Las notificaciones, el widget, el tiempo en pantalla y el bloqueo de apps solo existen en las APIs de Android
+(Kotlin/Java), por eso esta versión sigue en Kotlin.
